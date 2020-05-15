@@ -1,0 +1,10 @@
+[package]
+name = "hinku"
+version = "0.1.0"
+authors = ["Mitja Karhusaari <mitja@karhusaari.me>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+logos = "0.11.4"
