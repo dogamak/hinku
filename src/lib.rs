@@ -355,7 +355,7 @@ impl<T,E> ParseResultExt<T,E> for ParseResult<T,E> {
     }
 }
 
-#[cfg(all(test, feature = "logos"))]
+#[cfg(test)]
 mod tests {
     use super::{
         BufferedStream,
