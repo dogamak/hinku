@@ -35,6 +35,8 @@ where
             if let Some((token, span)) = self.stream.next() {
                 self.buffer.push_front((token.clone(), span.clone()));
                 return Some((token, span));
+            } else {
+                return None;
             }
         }
 
