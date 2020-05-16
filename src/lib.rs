@@ -69,7 +69,10 @@
 //! assert_eq!(stream.take(foobar), Ok((Token::Foo, Token::Bar)));
 //! ```
 
+mod error;
 mod buffered_stream;
+
+pub use error::{ParseResult, ParseError, ParseResultExt};
 pub use buffered_stream::BufferedStream;
 
 pub type Span = std::ops::Range<usize>;
@@ -85,39 +88,6 @@ pub trait TokenStream<T> {
     /// Mark the tokens before the current position in the stream as unneeded.
     /// The stream cannot be backtracked past this in the future.
     fn commit(&mut self);
-}
-
-/// Represents a parsing error.
-#[derive(Debug, PartialEq)]
-pub enum ParseError<E> {
-    /// The end of the stream was reached unexpectedly.
-    EndOfStream,
-
-    /// An unexpected token was encountered.
-    UnexpectedToken {
-        /// Span of the unexpected token.
-        span: Span,
-    },
-
-    /// An user-defined error occurred.
-    Custom {
-        /// Part of the input that caused the error.
-        span: Span,
-
-        /// List of error context. The first element is "deeper"
-        /// into the parser and the last more "general."
-        error: Vec<E>,
-    },
-}
-
-impl<E> ParseError<E> {
-    /// A convinience function for creating a [ParseError::Custom] variant.
-    pub fn custom(span: Span, error: E) -> ParseError<E> {
-        ParseError::Custom {
-            span,
-            error: vec![error],
-        }
-    }
 }
 
 #[macro_export]
@@ -176,8 +146,6 @@ where
         self.parent.commit()
     }
 }
-
-pub type ParseResult<R, E> = Result<R, ParseError<E>>;
 
 impl<T, S> TokenStreamExt<T> for S where S: TokenStream<T> {}
 
@@ -330,41 +298,6 @@ impl<'a, T> Drop for TokenStreamFork<'a, T> {
     fn drop(&mut self) {
         self.parent.backtrack(self.ahead);
         // self.parent.commit();
-    }
-}
-
-/// Implements convinience methods related to error handling for [ParseResult].
-pub trait ParseResultExt<T, E>: Sized {
-    /// Appends error context to the error if the [ParseResult] represents an error.
-    fn expected<C>(self, context: C) -> ParseResult<T, E>
-    where
-        E: From<C>;
-
-    /// Transmutes the type into an [Option], dismissing any possible errors.
-    fn optional(self) -> Option<T>;
-}
-
-impl<T, E> ParseResultExt<T, E> for ParseResult<T, E> {
-    fn expected<C>(self, context: C) -> ParseResult<T, E>
-    where
-        E: From<C>,
-    {
-        match self {
-            Ok(t) => Ok(t),
-            Err(ParseError::EndOfStream) => Err(ParseError::EndOfStream),
-            Err(ParseError::UnexpectedToken { span }) => Err(ParseError::Custom {
-                span,
-                error: vec![context.into()],
-            }),
-            Err(ParseError::Custom { span, mut error }) => {
-                error.push(context.into());
-                Err(ParseError::Custom { span, error })
-            }
-        }
-    }
-
-    fn optional(self) -> Option<T> {
-        self.ok()
     }
 }
 
