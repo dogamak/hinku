@@ -239,15 +239,22 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
     }
 
     fn assert_token(&mut self, token: T) -> ParseResult<(), String> where T: PartialEq<T> {
-        match self.advance() {
-            Some((t, _)) if t == token => Ok(()),
-            Some((_, span)) => Err(ParseError::UnexpectedToken { span }),
-            None => Err(ParseError::EndOfStream),
-        }
+        let err = match self.advance() {
+            Some((t, _)) if t == token => {
+                self.commit();
+                return Ok(());
+            },
+            Some((_, span)) => {
+                self.backtrack(1);
+                ParseError::UnexpectedToken { span }
+            },
+            None => ParseError::EndOfStream,
+        };
+
+        Err(err)
     }
 
     fn fork(&mut self) -> TokenStreamFork<T> {
-        println!("Fork!");
         TokenStreamFork {
             parent: self,
             ahead: 0,
