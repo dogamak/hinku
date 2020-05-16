@@ -198,10 +198,34 @@ impl<T> Either<T,T> {
     }
 }
 
+pub fn either<T, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl FnOnce(&mut dyn TokenStream<T>) -> ParseResult<Either<R1, R2>, String>
+where
+    P1: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R1,String>,
+    P2: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R2,String>,
+{
+    move |mut stream: &mut dyn TokenStream<T>| {
+        let mut spanning = SpanningStream::new(&mut stream);
+
+        let mut error;
+
+        match spanning.take(parser1) {
+            Ok(res) => return Ok(Either::Left(res)),
+            Err(err) => error = err,
+        }
+
+        match spanning.take(parser2) {
+            Ok(res) => return Ok(Either::Right(res)),
+            Err(err) => error = err,
+        }
+
+        Err(error)
+    }
+}
+
 pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
     fn take<P,R,E>(&mut self, parser: P) -> ParseResult<R,E>
     where
-        P: Fn(&mut dyn TokenStream<T>) -> ParseResult<R,E>,
+        P: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R,E>,
     {
         let mut fork = self.fork();
 
@@ -235,19 +259,7 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
         P1: Fn(&mut dyn TokenStream<T>) -> ParseResult<R1,String>,
         P2: Fn(&mut dyn TokenStream<T>) -> ParseResult<R2,String>,
     {
-        let mut spanning = SpanningStream::new(self);
-
-        if let Some(res) = spanning.take(parser1).optional() {
-            return Ok(Either::Left(res));
-        } else if let Some(res) = spanning.take(parser2).optional() {
-            return Ok(Either::Right(res));
-        } else {
-            let span = spanning.span();
-
-            Err(ParseError::UnexpectedToken {
-                span: span.unwrap_or(0..0),
-            })
-        }
+        self.take(either(parser1, parser2))
     }
 }
 
