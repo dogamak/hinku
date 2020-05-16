@@ -120,6 +120,17 @@ impl<E> ParseError<E> {
     }
 }
 
+#[macro_export]
+macro_rules! match_token {
+    ($stream:expr, { $( $token:pat => $arm:expr ),* $(,)* }) => {
+        match $stream.advance() {
+            None => Err($crate::ParseError::EndOfStream),
+            $( Some(($token, _span)) => $arm, )*
+            Some((_token, span)) => Err($crate::ParseError::UnexpectedToken { span }),
+        }
+    };
+}
+
 /// A [TokenStream] that keeps track of the span advanced while parsing.
 pub struct SpanningStream<'a, S> {
     parent: &'a mut S,
@@ -397,31 +408,22 @@ mod tests {
     type Result<T> = ParseResult<T, String>;
 
     fn symbol(stream: &mut dyn TokenStream<Token>) -> Result<String> {
-        match stream.advance() {
-            Some((Token::Symbol(sym), _span)) => Ok(sym),
-            Some((_other, span)) => Err(ParseError::custom(span, "expected a symbol".into())),
-            None => Err(ParseError::EndOfStream),
-        }
+        match_token!(stream, {
+            Token::Symbol(sym) => Ok(sym),
+        }).expected("expected a symbol")
     }
 
     fn number(stream: &mut dyn TokenStream<Token>) -> Result<i32> {
-        match stream.advance() {
-            Some((Token::Number(num), _span)) => Ok(num),
-            Some((_other, span)) => Err(ParseError::custom(span, "expected a number".into())),
-            None => Err(ParseError::EndOfStream),
-        }
+        match_token!(stream, {
+            Token::Number(num) => Ok(num),
+        }).expected("expected a number")
     }
 
     fn modifier(stream: &mut dyn TokenStream<Token>) -> Result<Mode> {
-        match stream.advance() {
-            Some((Token::Modifier(Modifier::Indirect), _span)) => Ok(Mode::Indirect),
-            Some((Token::Modifier(Modifier::Immediate), _span)) => Ok(Mode::Immediate),
-            Some((other, span)) => {
-                let msg = format!("expected a modifier (= or @), got: {:?}", other);
-                Err(ParseError::custom(span, msg))
-            },
-            None => Err(ParseError::EndOfStream),
-        }
+        match_token!(stream, {
+            Token::Modifier(Modifier::Indirect) => Ok(Mode::Indirect),
+            Token::Modifier(Modifier::Immediate) => Ok(Mode::Immediate),
+        }).expected("expected a modifier (= or @)")
     }
 
     fn value(mut stream: &mut dyn TokenStream<Token>) -> Result<Value> {
