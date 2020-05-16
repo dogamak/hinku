@@ -5,10 +5,11 @@
 //! ```
 //! use logos::Logos;
 //! use hinku::{
-//!     logos::BufferedLexer,
+//!     BufferedStream,
 //!     Either,
 //!     ParseError,
 //!     ParseResult,
+//!     ParseResultExt,
 //!     TokenStream,
 //!     TokenStreamExt,
 //! };
@@ -60,7 +61,7 @@
 //! }
 //!
 //! let lex = Token::lexer("foo bar bar foo bar");
-//! let mut stream = BufferedLexer::new(lex);
+//! let mut stream = BufferedStream::new(lex.spanned());
 //!
 //! assert_eq!(stream.take(foo), Ok(Token::Foo));
 //! assert_eq!(stream.take(bar), Ok(Token::Bar));
@@ -68,13 +69,9 @@
 //! assert_eq!(stream.take(foobar), Ok((Token::Foo, Token::Bar)));
 //! ```
 
-#[cfg(feature = "logos")]
-pub mod logos;
+mod buffered_stream;
+pub use buffered_stream::BufferedStream;
 
-#[cfg(feature = "logos")]
-pub use ::logos::Span;
-
-#[cfg(not(feature = "logos"))]
 pub type Span = std::ops::Range<usize>;
 
 /// Token stream with backtracking support.
@@ -331,14 +328,14 @@ impl<T,E> ParseResultExt<T,E> for ParseResult<T,E> {
 #[cfg(all(test, feature = "logos"))]
 mod tests {
     use super::{
+        BufferedStream,
+        Either,
         ParseError,
         ParseResult,
         ParseResultExt,
         Span,
         TokenStream,
         TokenStreamExt,
-        Either,
-        logos::BufferedLexer,
     };
     use logos::{Logos, Lexer};
 
@@ -402,7 +399,7 @@ mod tests {
     fn symbol(stream: &mut dyn TokenStream<Token>) -> Result<String> {
         match stream.advance() {
             Some((Token::Symbol(sym), _span)) => Ok(sym),
-            Some((other, span)) => Err(ParseError::custom(span, "expected a symbol".into())),
+            Some((_other, span)) => Err(ParseError::custom(span, "expected a symbol".into())),
             None => Err(ParseError::EndOfStream),
         }
     }
@@ -410,7 +407,7 @@ mod tests {
     fn number(stream: &mut dyn TokenStream<Token>) -> Result<i32> {
         match stream.advance() {
             Some((Token::Number(num), _span)) => Ok(num),
-            Some((other, span)) => Err(ParseError::custom(span, "expected a number".into())),
+            Some((_other, span)) => Err(ParseError::custom(span, "expected a number".into())),
             None => Err(ParseError::EndOfStream),
         }
     }
@@ -462,7 +459,7 @@ mod tests {
             .expected("errorneous index register notation")?;
 
         Ok(Operand {
-            mode: Mode::Immediate,
+            mode,
             value,
             index,
         })
@@ -482,8 +479,8 @@ mod tests {
             symbol(12=34)
         "#;
 
-        let mut lex = Token::lexer(&input);
-        let mut stream = BufferedLexer::new(lex);
+        let lex = Token::lexer(&input);
+        let mut stream = BufferedStream::new(lex.spanned());
 
         let err;
 
