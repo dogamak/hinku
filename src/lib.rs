@@ -30,7 +30,7 @@
 //! /// A function that either consumes a Foo token or returns an error.
 //! fn foo(stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
 //!     match stream.advance() {
-//!         None => Err(ParseError::EndOfStream),
+//!         None => Err(ParseError::eos(0..0)),
 //!         Some((Token::Foo, _)) => Ok(Token::Foo),
 //!         Some((other, span)) => Err(ParseError::other(span, "expected a foo")),
 //!     }
@@ -39,7 +39,7 @@
 //! /// A function that either consumes a Bar token or returns an error.
 //! fn bar(stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
 //!     match stream.advance() {
-//!         None => Err(ParseError::EndOfStream),
+//!         None => Err(ParseError::eos(0..0)),
 //!         Some((Token::Bar, _)) => Ok(Token::Bar),
 //!         Some((other, span)) => Err(ParseError::other(span, "expected a bar")),
 //!     }
@@ -72,7 +72,7 @@
 mod error;
 mod buffered_stream;
 
-pub use error::{ParseResult, ParseError, ParseResultExt};
+pub use error::{ParseResult, ParseError, ErrorKind, ParseResultExt};
 pub use buffered_stream::BufferedStream;
 
 pub type Span = std::ops::Range<usize>;
@@ -94,7 +94,7 @@ pub trait TokenStream<T> {
 macro_rules! match_token {
     ($stream:expr, { $( $token:pat => $arm:expr ),* $(,)* }) => {
         match $stream.advance() {
-            None => Err($crate::ParseError::EndOfStream),
+            None => Err($crate::ParseError::eos(0..0)),
             $( Some(($token, _span)) => $arm, )*
             Some((_token, span)) => Err($crate::ParseError::new(span)),
         }
@@ -219,7 +219,7 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
                 self.backtrack(1);
                 ParseError::new(span)
             }
-            None => ParseError::EndOfStream,
+            None => ParseError::eos(0..0),
         };
 
         Err(err)
@@ -315,11 +315,11 @@ mod tests {
         Immediate,
     }
 
-    fn modifier_callback(lex: &mut Lexer<Token>) -> Result<Modifier> {
+    fn modifier_callback(lex: &mut Lexer<Token>) -> std::result::Result<Modifier, ()> {
         match lex.slice() {
             "@" => Ok(Modifier::Indirect),
             "=" => Ok(Modifier::Immediate),
-            _ => Err(ParseError::EndOfStream),
+            _ => Err(()),
         }
     }
 
@@ -456,25 +456,31 @@ mod tests {
             }
         }
 
-        if let Some(ParseError::Other { span, mut context }) = err {
-            let (line_nr, column) = calculate_position(input, &span);
-            let line_orig = input.lines().skip(line_nr - 1).next().unwrap();
+        if let Some(err) = err {
+            let verbose = err.verbose(input);
+
+            let line_orig = input.lines().skip(verbose.position().line - 1).next().unwrap();
 
             let line = line_orig.trim();
 
-            let prefix = format!("Line {}: Error: ", line_nr);
+            let prefix = format!("Line {}: Error: ", verbose.position().line);
 
             println!("{}{}", prefix, line);
 
-            for _ in 0..column + prefix.len() - line_orig.len() + line.len() {
+            for _ in 0..verbose.position().column + prefix.len() - line_orig.len() + line.len() {
                 print!(" ");
             }
 
-            for _ in 0..span.end - span.start {
+            for _ in 0..verbose.position().length {
                 print!("^");
             }
 
-            context.reverse();
+            let context = match verbose.kind() {
+                crate::ErrorKind::Other { context } => context,
+                _ => return,
+            };
+
+            let context = context.iter().cloned().rev().collect::<Vec<_>>();
 
             println!(" {}", context.join(": "));
         }

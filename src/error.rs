@@ -1,43 +1,91 @@
 use crate::Span;
+use std::ops::Range;
 
 /// Represents a parsing error.
-#[derive(Debug, PartialEq)]
-pub enum ParseError<E> {
+#[derive(Debug, PartialEq, Clone)]
+pub enum ErrorKind<E> {
     /// The end of the stream was reached unexpectedly.
     EndOfStream,
 
     /// An user-defined error occurred.
     Other {
-        /// Part of the input that caused the error.
-        span: Span,
-
         /// List of error context. The first element is "deeper"
         /// into the parser and the last more "general."
         context: Vec<E>,
     },
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParseError<E, P=Span> {
+    position: P,
+    kind: ErrorKind<E>,
+}
+
+impl<E, P> ParseError<E, P> {
+    pub fn position(&self) -> &P {
+        &self.position
+    }
+    
+    pub fn kind(&self) -> &ErrorKind<E> {
+        &self.kind
+    }
+}
+
 impl<E> ParseError<E> {
-    pub fn new(span: Span) -> ParseError<E> {
-        ParseError::Other {
-            span,
-            context: vec![],
+    pub fn new(position: Span) -> ParseError<E> {
+        ParseError {
+            position,
+            kind: ErrorKind::Other {
+                context: vec![],
+            },
+        }
+    }
+
+    pub fn eos(position: Span) -> ParseError<E> {
+        ParseError {
+            position,
+            kind: ErrorKind::EndOfStream,
         }
     }
 
     /// A convinience function for creating a [ParseError::Custom] variant.
-    pub fn other<C>(span: Span, ctx: C) -> ParseError<E>
+    pub fn other<C>(position: Span, ctx: C) -> ParseError<E>
     where
         E: From<C>,
     {
-        ParseError::Other {
-            span,
-            context: vec![ctx.into()],
+        ParseError {
+            position,
+            kind: ErrorKind::Other {
+                context: vec![ctx.into()],
+            },
+        }
+    }
+
+    pub fn verbose(self, input: &str) -> ParseError<E, Location> {
+        let (line, column) = input[..self.position.start]
+            .lines()
+            .fold((0, 0), |(line_nr, _column), line| (line_nr + 1, line.len()));
+
+        let position = Location {
+            line,
+            column,
+            length: self.position.len(),
+        };
+
+        ParseError {
+            position,
+            kind: self.kind,
         }
     }
 }
 
-pub type ParseResult<R, E> = Result<R, ParseError<E>>;
+pub type ParseResult<R, E, L=Span> = Result<R, ParseError<E,L>>;
+
+pub struct Location {
+    pub line: usize,
+    pub column: usize,
+    pub length: usize,
+}
 
 /// Implements convinience methods related to error handling for [ParseResult].
 pub trait ParseResultExt<T, E>: Sized {
@@ -51,23 +99,20 @@ pub trait ParseResultExt<T, E>: Sized {
 }
 
 impl<T, E> ParseResultExt<T, E> for ParseResult<T, E> {
-    fn context<C>(self, additional: C) -> ParseResult<T, E>
+    fn context<C>(mut self, additional: C) -> ParseResult<T, E>
     where
         E: From<C>,
     {
-        match self {
-            Ok(t) => Ok(t),
-            Err(ParseError::EndOfStream) => Err(ParseError::EndOfStream),
-            Err(ParseError::Other { span, mut context }) => {
+        if let Err(ref mut err) = self {
+            if let ErrorKind::Other { ref mut context } = err.kind {
                 context.push(additional.into());
-                Err(ParseError::Other { span, context })
             }
         }
+
+        self
     }
 
     fn optional(self) -> Option<T> {
         self.ok()
     }
 }
-
-
