@@ -4,8 +4,14 @@ version = "0.1.0"
 authors = ["Mitja Karhusaari <mitja@karhusaari.me>"]
 edition = "2018"
 
-[feature]
-logos = ["logos"]
+description = "A lightweight library for writing parsers that work on token streams."
+license = "MIT"
+
+[package.metadata.docs.rs]
+features = ["logos_integration"]
+
+[features]
+logos_integration = ["logos"]
 
 [dependencies]
 logos = { version = "0.11.4", optional = true }
