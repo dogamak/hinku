@@ -495,6 +495,8 @@ mod tests {
     fn it_works() {
         let input = r#"
             @symbol(10)
+            123(321)
+            =ARR(0)
             symbol(12=34)
         "#;
 
