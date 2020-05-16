@@ -226,27 +226,27 @@ fn symbol(stream: &mut dyn TokenStream<Token>) -> Result<String> {
     match_token!(stream, {
         Token::Symbol(sym) => Ok(sym.to_string()),
     })
-    .expected("expected a symbol")
+    .context("expected a symbol")
 }
 
 fn literal(stream: &mut dyn TokenStream<Token>) -> Result<i32> {
     match_token!(stream, {
         Token::Literal(num) => Ok(num),
     })
-    .expected("expected a number literal")
+    .context("expected a number literal")
 }
 
 fn register(stream: &mut dyn TokenStream<Token>) -> Result<Register> {
     match_token!(stream, {
         Token::Register(reg) => Ok(reg),
     })
-    .expected("expected a register")
+    .context("expected a register")
 }
 
 fn base_operand(mut stream: &mut dyn TokenStream<Token>) -> Result<BaseOperand> {
     let res = stream
         .take(either(symbol, either(literal, register)))
-        .expected("expected a symbol, an integer literal or a register")?;
+        .context("expected a symbol, an integer literal or a register")?;
 
     match res {
         Either::Left(sym) => Ok(BaseOperand::Symbol(sym)),
@@ -267,7 +267,7 @@ fn modifier(stream: &mut dyn TokenStream<Token>) -> Result<Mode> {
         Token::IndirectModifier => Ok(Mode::Indirect),
         Token::ImmediateModifier => Ok(Mode::Immediate),
     })
-    .expected("expected @ or =")
+    .context("expected @ or =")
 }
 
 fn index_register(mut stream: &mut dyn TokenStream<Token>) -> Result<Option<Register>> {
@@ -276,7 +276,7 @@ fn index_register(mut stream: &mut dyn TokenStream<Token>) -> Result<Option<Regi
         let reg = stream.take(register)?;
         stream
             .assert_token(Token::IndexEnd)
-            .expected("expected a closing parenthesis")?;
+            .context("expected a closing parenthesis")?;
         return Ok(Some(reg));
     }
 
@@ -302,14 +302,14 @@ fn concrete_opcode(stream: &mut dyn TokenStream<Token>) -> Result<OpCode> {
     match_token!(stream, {
         Token::Operator(op) => Ok(op),
     })
-    .expected("expected a opcode")
+    .context("expected a opcode")
 }
 
 fn pseudo_opcode(stream: &mut dyn TokenStream<Token>) -> Result<PseudoOpCode> {
     match_token!(stream, {
         Token::PseudoOperator(op) => Ok(op),
     })
-    .expected("expected a opcode")
+    .context("expected a opcode")
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -364,7 +364,7 @@ fn concrete_instruction(mut stream: &mut dyn TokenStream<Token>) -> Result<Concr
 
     stream
         .assert_token(Token::ParameterSeparator)
-        .expected("expected a comma")?;
+        .context("expected a comma")?;
 
     Ok(ConcreteInstruction {
         op,
@@ -395,7 +395,7 @@ enum Instruction {
 fn instruction(mut stream: &mut dyn TokenStream<Token>) -> Result<Instruction> {
     let res = stream
         .take(either(pseudo_instruction, concrete_instruction))
-        .expected("invalid instruction")?;
+        .context("invalid instruction")?;
 
     match res {
         Either::Left(pseudo) => Ok(Instruction::Pseudo(pseudo)),
@@ -607,43 +607,26 @@ Done  LOAD  R1, Summa(R2)   ; tulosta summa ja lopeta
         ])
     );
 
-    // println!("{:?}", program);
+    if let Err(ParseError::Other { span, mut context }) = program {
+        let (line_nr, column) = calculate_position(input, &span);
+        let line_orig = input.lines().skip(line_nr - 1).next().unwrap();
 
-    let span;
-    let error;
+        let line = line_orig.trim();
 
-    match program {
-        Err(ParseError::UnexpectedToken { span: s }) => {
-            span = s;
-            error = "unexpected token".to_string();
+        let prefix = format!("Line {}: Error: ", line_nr);
+
+        println!("{}{}", prefix, line);
+
+        for _ in 0..column + prefix.len() - (line_orig.len() - line.len()) {
+            print!(" ");
         }
-        Err(ParseError::Custom {
-            span: s,
-            error: mut e,
-        }) => {
-            span = s;
-            e.reverse();
-            error = e.join(": ");
+
+        for _ in 0..span.end - span.start {
+            print!("^");
         }
-        _ => return,
+
+        context.reverse();
+
+        println!(" {}", context.join(": "));
     }
-
-    let (line_nr, column) = calculate_position(input, &span);
-    let line_orig = input.lines().skip(line_nr - 1).next().unwrap();
-
-    let line = line_orig.trim();
-
-    let prefix = format!("Line {}: Error: ", line_nr);
-
-    println!("{}{}", prefix, line);
-
-    for _ in 0..column + prefix.len() - (line_orig.len() - line.len()) {
-        print!(" ");
-    }
-
-    for _ in 0..span.end - span.start {
-        print!("^");
-    }
-
-    println!(" {}", error);
 }

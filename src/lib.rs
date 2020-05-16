@@ -32,7 +32,7 @@
 //!     match stream.advance() {
 //!         None => Err(ParseError::EndOfStream),
 //!         Some((Token::Foo, _)) => Ok(Token::Foo),
-//!         Some((other, span)) => Err(ParseError::custom(span, "expected a foo".into())),
+//!         Some((other, span)) => Err(ParseError::other(span, "expected a foo")),
 //!     }
 //! }
 //!
@@ -41,7 +41,7 @@
 //!     match stream.advance() {
 //!         None => Err(ParseError::EndOfStream),
 //!         Some((Token::Bar, _)) => Ok(Token::Bar),
-//!         Some((other, span)) => Err(ParseError::custom(span, "expected a bar".into())),
+//!         Some((other, span)) => Err(ParseError::other(span, "expected a bar")),
 //!     }
 //! }
 //!
@@ -49,7 +49,7 @@
 //! fn foo_or_bar(mut stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
 //!     stream.either(foo, bar)
 //!         .map(Either::merge)
-//!         .expected("expected either a foo or a bar")
+//!         .context("expected either a foo or a bar")
 //! }
 //!
 //! /// A function that expects a Foo token, followed by a Bar token.
@@ -96,7 +96,7 @@ macro_rules! match_token {
         match $stream.advance() {
             None => Err($crate::ParseError::EndOfStream),
             $( Some(($token, _span)) => $arm, )*
-            Some((_token, span)) => Err($crate::ParseError::UnexpectedToken { span }),
+            Some((_token, span)) => Err($crate::ParseError::new(span)),
         }
     };
 }
@@ -217,7 +217,7 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
             }
             Some((_, span)) => {
                 self.backtrack(1);
-                ParseError::UnexpectedToken { span }
+                ParseError::new(span)
             }
             None => ParseError::EndOfStream,
         };
@@ -371,14 +371,14 @@ mod tests {
         match_token!(stream, {
             Token::Symbol(sym) => Ok(sym),
         })
-        .expected("expected a symbol")
+        .context("expected a symbol")
     }
 
     fn number(stream: &mut dyn TokenStream<Token>) -> Result<i32> {
         match_token!(stream, {
             Token::Number(num) => Ok(num),
         })
-        .expected("expected a number")
+        .context("expected a number")
     }
 
     fn modifier(stream: &mut dyn TokenStream<Token>) -> Result<Mode> {
@@ -386,13 +386,13 @@ mod tests {
             Token::Modifier(Modifier::Indirect) => Ok(Mode::Indirect),
             Token::Modifier(Modifier::Immediate) => Ok(Mode::Immediate),
         })
-        .expected("expected a modifier (= or @)")
+        .context("expected a modifier (= or @)")
     }
 
     fn value(mut stream: &mut dyn TokenStream<Token>) -> Result<Value> {
         let res = stream
             .either(symbol, number)
-            .expected("expected a symbol or a number")?;
+            .context("expected a symbol or a number")?;
 
         match res {
             Either::Left(sym) => Ok(Value::Symbol(sym)),
@@ -406,7 +406,7 @@ mod tests {
             let index = stream.take(number)?;
             stream
                 .assert_token(Token::IndexEnd)
-                .expected("expected a closing parenthesis")?;
+                .context("expected a closing parenthesis")?;
 
             return Ok(Some(index));
         }
@@ -417,11 +417,11 @@ mod tests {
     fn operand(mut stream: &mut dyn TokenStream<Token>) -> Result<Operand> {
         let mode = stream.take(modifier).optional().unwrap_or(Mode::Direct);
 
-        let value = stream.take(value).expected("invalid base operand")?;
+        let value = stream.take(value).context("invalid base operand")?;
 
         let index = stream
             .take(index_register)
-            .expected("errorneous index register notation")?;
+            .context("errorneous index register notation")?;
 
         Ok(Operand { mode, value, index })
     }
@@ -456,7 +456,7 @@ mod tests {
             }
         }
 
-        if let Some(ParseError::Custom { span, mut error }) = err {
+        if let Some(ParseError::Other { span, mut context }) = err {
             let (line_nr, column) = calculate_position(input, &span);
             let line_orig = input.lines().skip(line_nr - 1).next().unwrap();
 
@@ -474,9 +474,9 @@ mod tests {
                 print!("^");
             }
 
-            error.reverse();
+            context.reverse();
 
-            println!(" {}", error.join(": "));
+            println!(" {}", context.join(": "));
         }
     }
 }

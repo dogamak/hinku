@@ -1,8 +1,7 @@
 use logos::{Lexer, Logos};
 
 use hinku::{
-    either, match_token, BufferedStream, ParseResult, ParseResultExt,
-    TokenStream, TokenStreamExt,
+    either, match_token, BufferedStream, ParseResult, ParseResultExt, TokenStream, TokenStreamExt,
 };
 
 type Result<T> = ParseResult<T, String>;
@@ -37,31 +36,36 @@ fn literal(mut stream: &mut dyn TokenStream<Token>) -> Result<i32> {
 
     match_token!(stream, {
         Token::Literal(num) => Ok(num * sign),
-    }).expected("expected a number literal")
+    })
+    .context("expected a number literal")
 }
 
 fn multiplication(stream: &mut dyn TokenStream<Token>) -> Result<Token> {
     match_token!(stream, {
         token @ Token::Multiply => Ok(token),
-    }).expected("expected multiplication operator")
+    })
+    .context("expected multiplication operator")
 }
 
 fn division(stream: &mut dyn TokenStream<Token>) -> Result<Token> {
     match_token!(stream, {
         token @ Token::Divide => Ok(token),
-    }).expected("expected division operator")
+    })
+    .context("expected division operator")
 }
 
 fn addition(stream: &mut dyn TokenStream<Token>) -> Result<Token> {
     match_token!(stream, {
         token @ Token::Add => Ok(token),
-    }).expected("expected addition operator")
+    })
+    .context("expected addition operator")
 }
 
 fn subtraction(stream: &mut dyn TokenStream<Token>) -> Result<Token> {
     match_token!(stream, {
         token @ Token::Subtract => Ok(token),
-    }).expected("expected subtraction operator")
+    })
+    .context("expected subtraction operator")
 }
 
 #[derive(Debug, PartialEq)]
@@ -75,17 +79,17 @@ enum Factor {
 }
 
 fn factor(mut stream: &mut dyn TokenStream<Token>) -> Result<Factor> {
-  let lhs = stream.take(literal)?;
-  
-  if let Some(operation) = stream.take(either(multiplication, division)).optional() {
-    Ok(Factor::Operation {
-      lhs,
-      operation: operation.merge(),
-      rhs: Box::new(stream.take(factor)?),
-    })
-  } else {
-    Ok(Factor::Literal(lhs))
-  }
+    let lhs = stream.take(literal)?;
+
+    if let Some(operation) = stream.take(either(multiplication, division)).optional() {
+        Ok(Factor::Operation {
+            lhs,
+            operation: operation.merge(),
+            rhs: Box::new(stream.take(factor)?),
+        })
+    } else {
+        Ok(Factor::Literal(lhs))
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -99,17 +103,17 @@ enum Expr {
 }
 
 fn expr(mut stream: &mut dyn TokenStream<Token>) -> Result<Expr> {
-  let lhs = stream.take(factor)?;
+    let lhs = stream.take(factor)?;
 
-  if let Some(operation) = stream.take(either(addition, subtraction)).optional() {
-    Ok(Expr::Operation {
-      lhs,
-      operation: operation.merge(),
-      rhs: Box::new(stream.take(expr)?),
-    })
-  } else {
-    Ok(Expr::Factor(lhs))
-  }
+    if let Some(operation) = stream.take(either(addition, subtraction)).optional() {
+        Ok(Expr::Operation {
+            lhs,
+            operation: operation.merge(),
+            rhs: Box::new(stream.take(expr)?),
+        })
+    } else {
+        Ok(Expr::Factor(lhs))
+    }
 }
 
 #[test]
@@ -137,7 +141,7 @@ fn math() {
                         operation: Token::Divide,
                         rhs: Box::new(Factor::Literal(5)),
                     }),
-                }, 
+                },
                 operation: Token::Subtract,
                 rhs: Box::new(Expr::Factor(Factor::Operation {
                     lhs: 6,
