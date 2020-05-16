@@ -1,9 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::{
-    Span,
-    TokenStream,
-};
+use crate::{Span, TokenStream};
 
 pub struct BufferedStream<S, T> {
     buffer: VecDeque<(T, Span)>,
@@ -11,11 +8,11 @@ pub struct BufferedStream<S, T> {
     stream: S,
 }
 
-impl<S,T> BufferedStream<S,T> {
-    pub fn new<I>(stream: I) -> BufferedStream<S,T>
+impl<S, T> BufferedStream<S, T> {
+    pub fn new<I>(stream: I) -> BufferedStream<S, T>
     where
-        S: Iterator<Item=(T, Span)>,
-        I: IntoIterator<Item=(T, Span), IntoIter=S>,
+        S: Iterator<Item = (T, Span)>,
+        I: IntoIterator<Item = (T, Span), IntoIter = S>,
     {
         BufferedStream {
             buffer: VecDeque::new(),
@@ -25,9 +22,9 @@ impl<S,T> BufferedStream<S,T> {
     }
 }
 
-impl<S,T> TokenStream<T> for BufferedStream<S, T>
+impl<S, T> TokenStream<T> for BufferedStream<S, T>
 where
-    S: Iterator<Item=(T, Span)>,
+    S: Iterator<Item = (T, Span)>,
     T: Clone,
 {
     fn advance(&mut self) -> Option<(T, Span)> {

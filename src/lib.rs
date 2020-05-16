@@ -139,11 +139,8 @@ pub struct SpanningStream<'a, S> {
 
 impl<'a, S> SpanningStream<'a, S> {
     /// Create a new [SpanningStream] by wrapping a mutable reference to a parent TokenStream.
-    pub fn new(parent: &'a mut S) ->  SpanningStream<'a, S> {
-        SpanningStream {
-            parent,
-            span: None,
-        }
+    pub fn new(parent: &'a mut S) -> SpanningStream<'a, S> {
+        SpanningStream { parent, span: None }
     }
 
     /// Return the part of the input parsed since creating the [SpanningStream].
@@ -167,7 +164,7 @@ where
                 }
 
                 Some((token, span))
-            },
+            }
         }
     }
 
@@ -180,16 +177,16 @@ where
     }
 }
 
-pub type ParseResult<R,E> = Result<R, ParseError<E>>;
+pub type ParseResult<R, E> = Result<R, ParseError<E>>;
 
-impl<T,S> TokenStreamExt<T> for S where S: TokenStream<T> {}
+impl<T, S> TokenStreamExt<T> for S where S: TokenStream<T> {}
 
-pub enum Either<L,R> {
+pub enum Either<L, R> {
     Left(L),
     Right(R),
 }
 
-impl<T> Either<T,T> {
+impl<T> Either<T, T> {
     pub fn merge(self) -> T {
         match self {
             Either::Left(l) => l,
@@ -198,19 +195,22 @@ impl<T> Either<T,T> {
     }
 }
 
-pub fn either<T, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl FnOnce(&mut dyn TokenStream<T>) -> ParseResult<Either<R1, R2>, String>
+pub fn either<T, P1, P2, R1, R2>(
+    parser1: P1,
+    parser2: P2,
+) -> impl FnOnce(&mut dyn TokenStream<T>) -> ParseResult<Either<R1, R2>, String>
 where
-    P1: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R1,String>,
-    P2: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R2,String>,
+    P1: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R1, String>,
+    P2: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R2, String>,
 {
     move |mut stream: &mut dyn TokenStream<T>| {
         let mut spanning = SpanningStream::new(&mut stream);
 
-        let mut error;
+        let error;
 
         match spanning.take(parser1) {
             Ok(res) => return Ok(Either::Left(res)),
-            Err(err) => error = err,
+            Err(_err) => (),
         }
 
         match spanning.take(parser2) {
@@ -223,9 +223,9 @@ where
 }
 
 pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
-    fn take<P,R,E>(&mut self, parser: P) -> ParseResult<R,E>
+    fn take<P, R, E>(&mut self, parser: P) -> ParseResult<R, E>
     where
-        P: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R,E>,
+        P: FnOnce(&mut dyn TokenStream<T>) -> ParseResult<R, E>,
     {
         let mut fork = self.fork();
 
@@ -238,16 +238,19 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
         result
     }
 
-    fn assert_token(&mut self, token: T) -> ParseResult<(), String> where T: PartialEq<T> {
+    fn assert_token(&mut self, token: T) -> ParseResult<(), String>
+    where
+        T: PartialEq<T>,
+    {
         let err = match self.advance() {
             Some((t, _)) if t == token => {
                 self.commit();
                 return Ok(());
-            },
+            }
             Some((_, span)) => {
                 self.backtrack(1);
                 ParseError::UnexpectedToken { span }
-            },
+            }
             None => ParseError::EndOfStream,
         };
 
@@ -261,10 +264,14 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
         }
     }
 
-    fn either<P1, P2, R1, R2>(&mut self, parser1: P1, parser2: P2) -> ParseResult<Either<R1,R2>, String>
+    fn either<P1, P2, R1, R2>(
+        &mut self,
+        parser1: P1,
+        parser2: P2,
+    ) -> ParseResult<Either<R1, R2>, String>
     where
-        P1: Fn(&mut dyn TokenStream<T>) -> ParseResult<R1,String>,
-        P2: Fn(&mut dyn TokenStream<T>) -> ParseResult<R2,String>,
+        P1: Fn(&mut dyn TokenStream<T>) -> ParseResult<R1, String>,
+        P2: Fn(&mut dyn TokenStream<T>) -> ParseResult<R2, String>,
     {
         self.take(either(parser1, parser2))
     }
@@ -327,22 +334,28 @@ impl<'a, T> Drop for TokenStreamFork<'a, T> {
 }
 
 /// Implements convinience methods related to error handling for [ParseResult].
-pub trait ParseResultExt<T,E>: Sized {
+pub trait ParseResultExt<T, E>: Sized {
     /// Appends error context to the error if the [ParseResult] represents an error.
-    fn expected<C>(self, context: C) -> ParseResult<T,E> where E: From<C>;
+    fn expected<C>(self, context: C) -> ParseResult<T, E>
+    where
+        E: From<C>;
 
     /// Transmutes the type into an [Option], dismissing any possible errors.
     fn optional(self) -> Option<T>;
 }
 
-impl<T,E> ParseResultExt<T,E> for ParseResult<T,E> {
-    fn expected<C>(self, context: C) -> ParseResult<T,E> where E: From<C> {
+impl<T, E> ParseResultExt<T, E> for ParseResult<T, E> {
+    fn expected<C>(self, context: C) -> ParseResult<T, E>
+    where
+        E: From<C>,
+    {
         match self {
             Ok(t) => Ok(t),
             Err(ParseError::EndOfStream) => Err(ParseError::EndOfStream),
-            Err(ParseError::UnexpectedToken { span }) => {
-                Err(ParseError::Custom { span, error: vec![context.into()] })
-            },
+            Err(ParseError::UnexpectedToken { span }) => Err(ParseError::Custom {
+                span,
+                error: vec![context.into()],
+            }),
             Err(ParseError::Custom { span, mut error }) => {
                 error.push(context.into());
                 Err(ParseError::Custom { span, error })
@@ -358,16 +371,10 @@ impl<T,E> ParseResultExt<T,E> for ParseResult<T,E> {
 #[cfg(test)]
 mod tests {
     use super::{
-        BufferedStream,
-        Either,
-        ParseError,
-        ParseResult,
-        ParseResultExt,
-        Span,
-        TokenStream,
+        BufferedStream, Either, ParseError, ParseResult, ParseResultExt, Span, TokenStream,
         TokenStreamExt,
     };
-    use logos::{Logos, Lexer};
+    use logos::{Lexer, Logos};
 
     #[derive(Debug, Clone, PartialEq)]
     enum Modifier {
@@ -392,7 +399,8 @@ mod tests {
         #[regex("=|@", modifier_callback)]
         Modifier(Modifier),
 
-        #[regex("[A-Za-z_][A-Za-z0-9_]*", |lex| lex.slice().to_string())] Symbol(String),
+        #[regex("[A-Za-z_][A-Za-z0-9_]*", |lex| lex.slice().to_string())]
+        Symbol(String),
 
         #[regex("[0-9]+", |lex| lex.slice().parse())]
         Number(i32),
@@ -429,24 +437,29 @@ mod tests {
     fn symbol(stream: &mut dyn TokenStream<Token>) -> Result<String> {
         match_token!(stream, {
             Token::Symbol(sym) => Ok(sym),
-        }).expected("expected a symbol")
+        })
+        .expected("expected a symbol")
     }
 
     fn number(stream: &mut dyn TokenStream<Token>) -> Result<i32> {
         match_token!(stream, {
             Token::Number(num) => Ok(num),
-        }).expected("expected a number")
+        })
+        .expected("expected a number")
     }
 
     fn modifier(stream: &mut dyn TokenStream<Token>) -> Result<Mode> {
         match_token!(stream, {
             Token::Modifier(Modifier::Indirect) => Ok(Mode::Indirect),
             Token::Modifier(Modifier::Immediate) => Ok(Mode::Immediate),
-        }).expected("expected a modifier (= or @)")
+        })
+        .expected("expected a modifier (= or @)")
     }
 
     fn value(mut stream: &mut dyn TokenStream<Token>) -> Result<Value> {
-        let res = stream.either(symbol, number).expected("expected a symbol or a number")?;
+        let res = stream
+            .either(symbol, number)
+            .expected("expected a symbol or a number")?;
 
         match res {
             Either::Left(sym) => Ok(Value::Symbol(sym)),
@@ -458,7 +471,9 @@ mod tests {
         if stream.assert_token(Token::IndexBegin).optional().is_some() {
             stream.commit();
             let index = stream.take(number)?;
-            stream.assert_token(Token::IndexEnd).expected("expected a closing parenthesis")?;
+            stream
+                .assert_token(Token::IndexEnd)
+                .expected("expected a closing parenthesis")?;
 
             return Ok(Some(index));
         }
@@ -467,28 +482,21 @@ mod tests {
     }
 
     fn operand(mut stream: &mut dyn TokenStream<Token>) -> Result<Operand> {
-        let mode = stream.take(modifier)
-            .optional()
-            .unwrap_or(Mode::Direct);
+        let mode = stream.take(modifier).optional().unwrap_or(Mode::Direct);
 
-        let value = stream.take(value)
-            .expected("invalid base operand")?;
+        let value = stream.take(value).expected("invalid base operand")?;
 
-        let index = stream.take(index_register)
+        let index = stream
+            .take(index_register)
             .expected("errorneous index register notation")?;
 
-        Ok(Operand {
-            mode,
-            value,
-            index,
-        })
+        Ok(Operand { mode, value, index })
     }
 
     fn calculate_position(input: &str, span: &Span) -> (usize, usize) {
-        input[..span.start].lines()
-            .fold((0, 0), |(line_nr, _column), line| {
-                (line_nr + 1, line.len())
-            })
+        input[..span.start]
+            .lines()
+            .fold((0, 0), |(line_nr, _column), line| (line_nr + 1, line.len()))
     }
 
     #[test]
@@ -515,10 +523,9 @@ mod tests {
             }
         }
 
-
         if let Some(ParseError::Custom { span, mut error }) = err {
             let (line_nr, column) = calculate_position(input, &span);
-            let line_orig = input.lines().skip(line_nr-1).next().unwrap();
+            let line_orig = input.lines().skip(line_nr - 1).next().unwrap();
 
             let line = line_orig.trim();
 
