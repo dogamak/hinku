@@ -455,9 +455,7 @@ mod tests {
     }
 
     fn index_register(mut stream: &mut dyn TokenStream<Token>) -> Result<Option<i32>> {
-        println!("Assert IndexBegin");
         if stream.assert_token(Token::IndexBegin).optional().is_some() {
-            println!("Index Begin");
             stream.commit();
             let index = stream.take(number)?;
             stream.assert_token(Token::IndexEnd).expected("expected a closing parenthesis")?;
@@ -517,8 +515,6 @@ mod tests {
 
 
         if let Some(ParseError::Custom { span, mut error }) = err {
-            println!("{:?}", input.lines().collect::<Vec<_>>());
-
             let (line_nr, column) = calculate_position(input, &span);
             let line_orig = input.lines().skip(line_nr-1).next().unwrap();
 
