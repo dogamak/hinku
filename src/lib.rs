@@ -1,74 +1,20 @@
-use logos::{Logos, Lexer, Span};
+#[cfg(feature = "logos")]
+pub mod logos;
 
-use std::collections::VecDeque;
+#[cfg(feature = "logos")]
+pub use ::logos::Span;
 
-struct BufferedLexer<'a, T: Logos<'a>> {
-    lexer: Lexer<'a, T>,
-    position: usize,
-    buffer: VecDeque<(T, Span)>,
-}
+#[cfg(not(feature = "logos"))]
+pub type Span = std::ops::Range<usize>;
 
-impl<'a, T> BufferedLexer<'a, T>
-where
-    T: Logos<'a>,
-{
-    fn new(lexer: Lexer<'a, T>) -> Self {
-        BufferedLexer {
-            lexer,
-            position: 0,
-            buffer: VecDeque::new(),
-        }
-    }
-}
-
-impl<'a, T> TokenStream<T> for BufferedLexer<'a, T>
-where
-    T: Logos<'a> + Clone + std::fmt::Debug,
-{
-    fn advance(&mut self) -> Option<(T, Span)> {
-        if self.position == 0 {
-            if let Some(token) = self.lexer.next() {
-                let span = self.lexer.span();
-
-                self.buffer.push_front((token.clone(), span.clone()));
-
-
-                println!("Buf: {:?} Pos: {}", self.buffer, self.position);
-
-                return Some((token, span));
-            }
-        }
-
-        println!("Buf: {:?} Pos: {}", self.buffer, self.position);
-        self.position -= 1;
-        self.buffer.get(self.position).map(Clone::clone)
-    }
-
-    fn backtrack(&mut self, n: usize) {
-        println!("Backtracking: {} + {} = {} / {}", self.position, n, self.position + n, self.buffer.len());
-
-        if self.position + n > self.buffer.len() + 1 {
-            panic!();
-        }
-
-        self.position += n;
-        // self.buffer.truncate(self.buffer.len() - n);
-    }
-
-    fn commit(&mut self) {
-        println!("Commit! {:?}", self.buffer);
-        self.buffer.truncate(self.position);
-    }
-}
-
-trait TokenStream<T> {
+pub trait TokenStream<T> {
     fn advance(&mut self) -> Option<(T, Span)>;
     fn backtrack(&mut self, n: usize);
     fn commit(&mut self);
 }
 
 #[derive(Debug)]
-enum ParseError<E> {
+pub enum ParseError<E> {
     EndOfStream,
     UnexpectedToken {
         span: Span,
@@ -88,7 +34,7 @@ impl<E> ParseError<E> {
     }
 }
 
-struct SpanningStream<'a, S> {
+pub struct SpanningStream<'a, S> {
     parent: &'a mut S,
     span: Option<Span>,
 }
@@ -138,12 +84,12 @@ type ParseResult<R,E> = Result<R, ParseError<E>>;
 
 impl<T,S> TokenStreamExt<T> for S where S: TokenStream<T> {}
 
-enum Either<L,R> {
+pub enum Either<L,R> {
     Left(L),
     Right(R),
 }
 
-trait TokenStreamExt<T>: TokenStream<T> + Sized {
+pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
     fn take<P,R,E>(&mut self, parser: P) -> ParseResult<R,E>
     where
         P: Fn(&mut dyn TokenStream<T>) -> ParseResult<R,E>,
@@ -210,7 +156,7 @@ impl<'a, T> TokenStream<T> for &mut dyn TokenStream<T> {
     }
 }
 
-struct TokenStreamFork<'a, T> {
+pub struct TokenStreamFork<'a, T> {
     parent: &'a mut dyn TokenStream<T>,
     // committed: usize,
     ahead: usize,
@@ -249,7 +195,7 @@ impl<'a, T> Drop for TokenStreamFork<'a, T> {
     }
 }
 
-trait ParseResultExt<T,E>: Sized {
+pub trait ParseResultExt<T,E>: Sized {
     fn expected<C>(self, context: C) -> ParseResult<T,E> where E: From<C>;
     fn optional(self) -> Option<T>;
 }
@@ -274,10 +220,19 @@ impl<T,E> ParseResultExt<T,E> for ParseResult<T,E> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "logos"))]
 mod tests {
-    use super::*;
-    use logos::Logos;
+    use super::{
+        ParseError,
+        ParseResult,
+        ParseResultExt,
+        Span,
+        TokenStream,
+        TokenStreamExt,
+        Either,
+        logos::BufferedLexer,
+    };
+    use logos::{Logos, Lexer};
 
     #[derive(Debug, Clone, PartialEq)]
     enum Modifier {
