@@ -1,3 +1,73 @@
+//! A lightweight library for writing parsers that work on token streams.
+//!
+//! # Example
+//!
+//! ```
+//! use logos::Logos;
+//! use hinku::{
+//!     logos::BufferedLexer,
+//!     Either,
+//!     ParseError,
+//!     ParseResult,
+//!     TokenStream,
+//!     TokenStreamExt,
+//! };
+//!
+//! #[derive(Logos, Debug, Clone, PartialEq)]
+//! enum Token {
+//!     #[token("foo")]
+//!     Foo,
+//!
+//!     #[token("bar")]
+//!     Bar,
+//!
+//!     #[error]
+//!     #[regex(r"[ \n\r\f\t]+", logos::skip)]
+//!     Error,
+//! }
+//!
+//! /// A function that either consumes a Foo token or returns an error.
+//! fn foo(stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
+//!     match stream.advance() {
+//!         None => Err(ParseError::EndOfStream),
+//!         Some((Token::Foo, _)) => Ok(Token::Foo),
+//!         Some((other, span)) => Err(ParseError::custom(span, "expected a foo".into())),
+//!     }
+//! }
+//!
+//! /// A function that either consumes a Bar token or returns an error.
+//! fn bar(stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
+//!     match stream.advance() {
+//!         None => Err(ParseError::EndOfStream),
+//!         Some((Token::Bar, _)) => Ok(Token::Bar),
+//!         Some((other, span)) => Err(ParseError::custom(span, "expected a bar".into())),
+//!     }
+//! }
+//!
+//! /// A function that consumes either one of the tokens.
+//! fn foo_or_bar(mut stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
+//!     stream.either(foo, bar)
+//!         .map(Either::merge)
+//!         .expected("expected either a foo or a bar")
+//! }
+//!
+//! /// A function that expects a Foo token, followed by a Bar token.
+//! fn foobar(mut stream: &mut dyn TokenStream<Token>) -> ParseResult<(Token, Token), String> {
+//!     let f = stream.take(foo)?;
+//!     let b = stream.take(bar)?;
+//!
+//!     Ok((f, b))
+//! }
+//!
+//! let lex = Token::lexer("foo bar bar foo bar");
+//! let mut stream = BufferedLexer::new(lex);
+//!
+//! assert_eq!(stream.take(foo), Ok(Token::Foo));
+//! assert_eq!(stream.take(bar), Ok(Token::Bar));
+//! assert_eq!(stream.take(foo_or_bar), Ok(Token::Bar));
+//! assert_eq!(stream.take(foobar), Ok((Token::Foo, Token::Bar)));
+//! ```
+
 #[cfg(feature = "logos")]
 pub mod logos;
 
@@ -7,26 +77,45 @@ pub use ::logos::Span;
 #[cfg(not(feature = "logos"))]
 pub type Span = std::ops::Range<usize>;
 
+/// Token stream with backtracking support.
 pub trait TokenStream<T> {
+    /// Returns the token and it's span from the current position in the token stream.
     fn advance(&mut self) -> Option<(T, Span)>;
+
+    /// Backtracks `n` tokens in the stream.
     fn backtrack(&mut self, n: usize);
+
+    /// Mark the tokens before the current position in the stream as unneeded.
+    /// The stream cannot be backtracked past this in the future.
     fn commit(&mut self);
 }
 
-#[derive(Debug)]
+/// Represents a parsing error.
+#[derive(Debug, PartialEq)]
 pub enum ParseError<E> {
+    /// The end of the stream was reached unexpectedly.
     EndOfStream,
+
+    /// An unexpected token was encountered.
     UnexpectedToken {
+        /// Span of the unexpected token.
         span: Span,
     },
+
+    /// An user-defined error occurred.
     Custom {
+        /// Part of the input that caused the error.
         span: Span,
+
+        /// List of error context. The first element is "deeper"
+        /// into the parser and the last more "general."
         error: Vec<E>,
     },
 }
 
 impl<E> ParseError<E> {
-    fn custom(span: Span, error: E) -> ParseError<E> {
+    /// A convinience function for creating a [ParseError::Custom] variant.
+    pub fn custom(span: Span, error: E) -> ParseError<E> {
         ParseError::Custom {
             span,
             error: vec![error],
@@ -34,20 +123,23 @@ impl<E> ParseError<E> {
     }
 }
 
+/// A [TokenStream] that keeps track of the span advanced while parsing.
 pub struct SpanningStream<'a, S> {
     parent: &'a mut S,
     span: Option<Span>,
 }
 
 impl<'a, S> SpanningStream<'a, S> {
-    fn new(parent: &'a mut S) ->  SpanningStream<'a, S> {
+    /// Create a new [SpanningStream] by wrapping a mutable reference to a parent TokenStream.
+    pub fn new(parent: &'a mut S) ->  SpanningStream<'a, S> {
         SpanningStream {
             parent,
             span: None,
         }
     }
 
-    fn span(self) -> Option<Span> {
+    /// Return the part of the input parsed since creating the [SpanningStream].
+    pub fn span(self) -> Option<Span> {
         self.span
     }
 }
@@ -80,13 +172,22 @@ where
     }
 }
 
-type ParseResult<R,E> = Result<R, ParseError<E>>;
+pub type ParseResult<R,E> = Result<R, ParseError<E>>;
 
 impl<T,S> TokenStreamExt<T> for S where S: TokenStream<T> {}
 
 pub enum Either<L,R> {
     Left(L),
     Right(R),
+}
+
+impl<T> Either<T,T> {
+    pub fn merge(self) -> T {
+        match self {
+            Either::Left(l) => l,
+            Either::Right(r) => r,
+        }
+    }
 }
 
 pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
@@ -156,9 +257,12 @@ impl<'a, T> TokenStream<T> for &mut dyn TokenStream<T> {
     }
 }
 
+/// Fork of a token stream.
+///
+/// Any tokens consumed after the latest [commit](TokenStream::commit) are backtracked when the
+/// fork is dropped.
 pub struct TokenStreamFork<'a, T> {
     parent: &'a mut dyn TokenStream<T>,
-    // committed: usize,
     ahead: usize,
 }
 
@@ -195,8 +299,12 @@ impl<'a, T> Drop for TokenStreamFork<'a, T> {
     }
 }
 
+/// Implements convinience methods related to error handling for [ParseResult].
 pub trait ParseResultExt<T,E>: Sized {
+    /// Appends error context to the error if the [ParseResult] represents an error.
     fn expected<C>(self, context: C) -> ParseResult<T,E> where E: From<C>;
+
+    /// Transmutes the type into an [Option], dismissing any possible errors.
     fn optional(self) -> Option<T>;
 }
 
