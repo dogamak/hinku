@@ -1,5 +1,5 @@
 use crate::Span;
-use std::ops::Range;
+use std::fmt;
 
 /// Represents a parsing error.
 #[derive(Debug, PartialEq, Clone)]
@@ -7,79 +7,128 @@ pub enum ErrorKind<E> {
     /// The end of the stream was reached unexpectedly.
     EndOfStream,
 
-    /// An user-defined error occurred.
-    Other {
-        /// List of error context. The first element is "deeper"
-        /// into the parser and the last more "general."
-        context: Vec<E>,
+    UnexpectedToken {
+        token: Option<String>,
     },
+
+    /// An user-defined error occurred.
+    Other(E),
+}
+
+impl<E> fmt::Display for ErrorKind<E> where E: fmt::Display {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ErrorKind::EndOfStream => write!(f, "unexpected end of stream"),
+            ErrorKind::UnexpectedToken { token: None } => write!(f, "unexpected token"),
+            ErrorKind::UnexpectedToken { token: Some(token) } => write!(f, "unexpected token: {}", token),
+            ErrorKind::Other(ctx) => ctx.fmt(f),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ParseError<E, P=Span> {
+pub struct ParseError<E,P=Position> {
     position: P,
-    kind: ErrorKind<E>,
+    context: Vec<ErrorKind<E>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Position {
+    EndOfStream,
+    Span(Span),
 }
 
 impl<E, P> ParseError<E, P> {
+    pub fn context(&self) -> &[ErrorKind<E>] {
+        &self.context[..]
+    }
+
     pub fn position(&self) -> &P {
         &self.position
     }
-    
-    pub fn kind(&self) -> &ErrorKind<E> {
-        &self.kind
+
+    pub fn root_cause(&self) -> &ErrorKind<E> {
+        self.context.first().unwrap_or(&ErrorKind::UnexpectedToken { token: None })
     }
 }
 
 impl<E> ParseError<E> {
-    pub fn new(position: Span) -> ParseError<E> {
+    pub fn new(span: Span) -> ParseError<E> {
         ParseError {
-            position,
-            kind: ErrorKind::Other {
-                context: vec![],
-            },
+            position: Position::Span(span),
+            context: vec![ErrorKind::UnexpectedToken { token: None }],
         }
     }
 
-    pub fn eos(position: Span) -> ParseError<E> {
+    pub fn eos() -> ParseError<E> {
         ParseError {
-            position,
-            kind: ErrorKind::EndOfStream,
+            position: Position::EndOfStream,
+            context: vec![ErrorKind::EndOfStream],
         }
     }
 
     /// A convinience function for creating a [ParseError::Custom] variant.
-    pub fn other<C>(position: Span, ctx: C) -> ParseError<E>
+    pub fn other<C>(span: Span, ctx: C) -> ParseError<E>
     where
         E: From<C>,
     {
         ParseError {
-            position,
-            kind: ErrorKind::Other {
-                context: vec![ctx.into()],
-            },
+            position: Position::Span(span),
+            context: vec![ErrorKind::Other(ctx.into())],
         }
     }
 
-    pub fn verbose(self, input: &str) -> ParseError<E, Location> {
-        let (line, column) = input[..self.position.start]
-            .lines()
+    pub fn verbose(mut self, input: &str) -> ParseError<E, Location> {
+        let leading = match self.position {
+            Position::EndOfStream => &input[..],
+            Position::Span(ref span) => &input[..span.start],
+        };
+
+        let (line, column) = leading
+            .split('\n')
             .fold((0, 0), |(line_nr, _column), line| (line_nr + 1, line.len()));
 
         let position = Location {
             line,
             column,
-            length: self.position.len(),
+            length: match self.position {
+                Position::Span(ref span) => span.len(),
+                Position::EndOfStream => 1,
+            },
         };
+
+        if let Position::Span(span) = self.position {
+            let span = span.clone();
+            for ctx in &mut self.context {
+                match ctx {
+                    ErrorKind::UnexpectedToken { token: token @ None } => {
+                        *token = Some(input[span.clone()].to_string());
+                    },
+                    _ => (),
+                }
+            }
+        }
 
         ParseError {
             position,
-            kind: self.kind,
+            context: self.context,
         }
     }
 }
 
-pub type ParseResult<R, E, L=Span> = Result<R, ParseError<E,L>>;
+impl<E,L> fmt::Display for ParseError<E,L> where E: fmt::Display {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = self.context.iter()
+            .rev()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(": ");
+
+        write!(f, "{}", s)
+    }
+}
+
+pub type ParseResult<R, E, L=Position> = Result<R, ParseError<E,L>>;
 
 pub struct Location {
     pub line: usize,
@@ -104,9 +153,7 @@ impl<T, E> ParseResultExt<T, E> for ParseResult<T, E> {
         E: From<C>,
     {
         if let Err(ref mut err) = self {
-            if let ErrorKind::Other { ref mut context } = err.kind {
-                context.push(additional.into());
-            }
+            err.context.push(ErrorKind::Other(additional.into()));
         }
 
         self

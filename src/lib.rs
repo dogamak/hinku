@@ -30,7 +30,7 @@
 //! /// A function that either consumes a Foo token or returns an error.
 //! fn foo(stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
 //!     match stream.advance() {
-//!         None => Err(ParseError::eos(0..0)),
+//!         None => Err(ParseError::eos()),
 //!         Some((Token::Foo, _)) => Ok(Token::Foo),
 //!         Some((other, span)) => Err(ParseError::other(span, "expected a foo")),
 //!     }
@@ -39,7 +39,7 @@
 //! /// A function that either consumes a Bar token or returns an error.
 //! fn bar(stream: &mut dyn TokenStream<Token>) -> ParseResult<Token, String> {
 //!     match stream.advance() {
-//!         None => Err(ParseError::eos(0..0)),
+//!         None => Err(ParseError::eos()),
 //!         Some((Token::Bar, _)) => Ok(Token::Bar),
 //!         Some((other, span)) => Err(ParseError::other(span, "expected a bar")),
 //!     }
@@ -94,7 +94,7 @@ pub trait TokenStream<T> {
 macro_rules! match_token {
     ($stream:expr, { $( $token:pat => $arm:expr ),* $(,)* }) => {
         match $stream.advance() {
-            None => Err($crate::ParseError::eos(0..0)),
+            None => Err($crate::ParseError::eos()),
             $( Some(($token, _span)) => $arm, )*
             Some((_token, span)) => Err($crate::ParseError::new(span)),
         }
@@ -219,7 +219,7 @@ pub trait TokenStreamExt<T>: TokenStream<T> + Sized {
                 self.backtrack(1);
                 ParseError::new(span)
             }
-            None => ParseError::eos(0..0),
+            None => ParseError::eos(),
         };
 
         Err(err)
@@ -438,7 +438,7 @@ mod tests {
             @symbol(10)
             123(321)
             =ARR(0)
-            symbol(12=34)
+            symbol(AYY)
         "#;
 
         let lex = Token::lexer(&input);
@@ -475,14 +475,7 @@ mod tests {
                 print!("^");
             }
 
-            let context = match verbose.kind() {
-                crate::ErrorKind::Other { context } => context,
-                _ => return,
-            };
-
-            let context = context.iter().cloned().rev().collect::<Vec<_>>();
-
-            println!(" {}", context.join(": "));
+            println!(" {}", verbose);
         }
     }
 }

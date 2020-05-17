@@ -416,7 +416,7 @@ fn program(mut stream: &mut dyn TokenStream<Token>) -> Result<Vec<(Vec<String>, 
 
         let instruction = match stream.take(instruction) {
             Ok(ins) => ins,
-            Err(err) if err.kind() == &ErrorKind::EndOfStream => break,
+            Err(err) if err.root_cause() == &ErrorKind::EndOfStream => break,
             Err(err) => return Err(err),
         };
 
@@ -461,6 +461,30 @@ Done  LOAD  R1, Summa(R2)   ; tulosta summa ja lopeta
     let mut stream = BufferedStream::new(lex.spanned());
 
     let program = stream.take(program);
+
+    if let Err(err) = program.clone() {
+        let err = err.verbose(input);
+
+        let line_orig = input.lines()
+            .skip(err.position().line - 1)
+            .next().unwrap();
+
+        let line = line_orig.trim();
+
+        let prefix = format!("Line {}: Error: ", err.position().line);
+
+        println!("{}{}", prefix, line);
+
+        for _ in 0..err.position().column + prefix.len() - (line_orig.len() - line.len()) {
+            print!(" ");
+        }
+
+        for _ in 0..err.position().length {
+            print!("^");
+        }
+
+        println!(" {}", err);
+    }
 
     assert_eq!(
         program,
@@ -607,35 +631,4 @@ Done  LOAD  R1, Summa(R2)   ; tulosta summa ja lopeta
             ),
         ])
     );
-
-    if let Err(err) = program {
-        let err = err.verbose(input);
-
-        let line_orig = input.lines()
-            .skip(err.position().line - 1)
-            .next().unwrap();
-
-        let line = line_orig.trim();
-
-        let prefix = format!("Line {}: Error: ", err.position().line);
-
-        println!("{}{}", prefix, line);
-
-        for _ in 0..err.position().column + prefix.len() - (line_orig.len() - line.len()) {
-            print!(" ");
-        }
-
-        for _ in 0..err.position().length {
-            print!("^");
-        }
-
-        let context = match err.kind() {
-            ErrorKind::Other { context } => context,
-            _ => return,
-        };
-
-        let context = context.iter().cloned().rev().collect::<Vec<_>>();
-
-        println!(" {}", context.join(": "));
-    }
 }
